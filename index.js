@@ -6,7 +6,7 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const fetch = require("node-fetch"); // חשוב: להוסיף את זה
 
-const BOT_TOKEN = "8142647492:AAFLz8UkeXHqS2LCH2EmlB3Quktu8nCyzGUQ"; // תחליף לטוקן האמיתי שלך
+const BOT_TOKEN = "8142647492:AAFLz8UkeXHqS2LCH2EmW3Quktu8nCyzGUQ"; // תחליף לטוקן האמיתי שלך
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 const app = express();
@@ -716,4 +716,5 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log("Server started on port", PORT);
 });
+
 
