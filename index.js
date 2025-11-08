@@ -205,11 +205,11 @@ function getPrizePercents(numPlayers) {
   if (numPlayers >= 10 && numPlayers <= 15) return [50, 30, 20];
   if (numPlayers >= 16 && numPlayers <= 22) return [45, 27, 18, 10];
   if (numPlayers >= 23 && numPlayers <= 29) return [42, 25, 16, 10, 7];
-  if (numPlayers >= 30 && numPlayers <= 35) return [38, 23, 16, 7, 6];
-  if (numPlayers >= 36 && numPlayers <= 40) return [35, 22, 15, 7, 6, 5];
-  if (numPlayers >= 41 && numPlayers <= 47) return [32, 21, 15, 7, 6, 5, 4];
-  if (numPlayers >= 48 && numPlayers <= 56) return [30, 20, 14, 9, 7, 6, 5, 4];
-  if (numPlayers >= 57) return [28, 19, 14, 9, 7, 6, 5, 4, 3];
+  if (numPlayers >= 30 && numPlayers <= 35) return [38, 23, 16, 10, 7, 6];
+  if (numPlayers >= 36 && numPlayers <= 40) return [35, 22, 15, 10, 7, 6, 5];
+  if (numPlayers >= 41 && numPlayers <= 47) return [32, 21, 15, 10, 7, 6, 5, 4];
+  if (numPlayers >= 48 && numPlayers <= 56) return [30, 20, 14, 9, 7, 6, 5, 5, 4];
+  if (numPlayers >= 57) return [28, 19, 14, 9, 7, 6, 5, 5, 4, 3];
   return [100];
 }
 
@@ -594,3 +594,4 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Server started on port", PORT);
 });
+
