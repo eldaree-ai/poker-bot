@@ -4,7 +4,7 @@
 
 const express = require("express");
 const bodyParser = require("body-parser");
-const fetch = require("node-fetch"); // חשוב: להוסיף את זה
+const fetch = require("node-fetch");
 
 const BOT_TOKEN = "8142647492:AAFLz8UkeXHqS2LCH2EmW3Quktu8nCyzGUQ"; // תחליף לטוקן האמיתי שלך
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -14,7 +14,6 @@ app.use(bodyParser.json());
 
 // state לפי chatId
 const chatStates = new Map();
-
 
 /***************************************************
  * שחקנים
@@ -133,7 +132,6 @@ function loadState(chatId) {
     chatStates.set(chatId, {
       chatId: chatId,
       step: "START",
-      payboxName: null,
       numPlayers: null,
       buyIn: null,
       deal: false,
@@ -286,20 +284,17 @@ function handleMessage(msg) {
   if (text === "/start") {
     resetState(chatId);
     state = loadState(chatId);
-    state.step = "ASK_PAYBOX";
+    state.step = "ASK_PLAYERS";
     saveState(state);
     sendMessage(
       chatId,
       "ברוך הבא לבוט חישוב זכיות בטורניר פוקר.\n\n" +
-      "מה שם הפייבוקס? (אפשר לכתוב \"דלג\" אם לא רלוונטי)"
+      "כמה שחקנים היו בטורניר?"
     );
     return;
   }
 
   switch (state.step) {
-    case "ASK_PAYBOX":
-      handlePayboxInput(state, text);
-      break;
     case "ASK_PLAYERS":
       handlePlayersCountInput(state, text);
       break;
@@ -330,12 +325,12 @@ function handleCallback(cb) {
   if (data === "START_FLOW") {
     resetState(chatId);
     state = loadState(chatId);
-    state.step = "ASK_PAYBOX";
+    state.step = "ASK_PLAYERS";
     saveState(state);
     answerCallbackQuery(cb.id);
     sendMessage(
       chatId,
-      "התחל חישוב זכיות חדש.\n\nמה שם הפייבוקס? (אפשר \"דלג\")"
+      "התחל חישוב זכיות חדש.\n\nכמה שחקנים היו בטורניר?"
     );
     return;
   }
@@ -375,21 +370,6 @@ function handleCallback(cb) {
 /***************************************************
  * שלבי השיחה
  ***************************************************/
-function handlePayboxInput(state, text) {
-  const chatId = state.chatId;
-  const lower = text.toLowerCase();
-
-  if (!text || lower === "דלג" || lower === "skip") {
-    state.payboxName = null;
-  } else {
-    state.payboxName = text;
-  }
-
-  state.step = "ASK_PLAYERS";
-  saveState(state);
-  sendMessage(chatId, "כמה שחקנים היו בטורניר?");
-}
-
 function handlePlayersCountInput(state, text) {
   const chatId = state.chatId;
   const n = parseInt(text, 10);
@@ -618,10 +598,6 @@ function finalizeResults(state) {
   const playersMap = getPlayersMap();
   const lines = [];
 
-  const payboxLine = state.payboxName
-    ? "💰 פייבוקס: " + state.payboxName
-    : "💰 פייבוקס: לא צוין";
-
   let dealText = "לא";
   if (state.deal && state.dealCount && state.dealCount > 0) {
     if (state.dealCount >= winners.length) {
@@ -633,7 +609,6 @@ function finalizeResults(state) {
 
   const header =
     "🎯 סיכום הטילט היומי 🎯\n\n" +
-    payboxLine + "\n" +
     "👥 שחקנים: " + state.numPlayers + "\n" +
     "💵 כניסה: " + state.buyIn + "₪\n" +
     "🤝 דיל: " + dealText + "\n\n" +
@@ -670,7 +645,9 @@ function finalizeResults(state) {
     "🎉 ברכות לזוכים!\n" +
     "שתמיד תראו פלופים טובים 😎";
 
-  const summaryText = header + body + footer;
+  const tagLine = "\n\nתייגו בבקשה את בעל הפייבוקס @";
+
+  const summaryText = header + body + footer + tagLine;
 
   const waUrl =
     "https://api.whatsapp.com/send?text=" +
@@ -716,5 +693,3 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log("Server started on port", PORT);
 });
-
-
