@@ -645,7 +645,7 @@ function finalizeResults(state) {
     "🎉 ברכות לזוכים!\n" +
     "שתמיד תראו פלופים טובים 😎";
 
-  const tagLine = "\n\nתייגו בבקשה את בעל הפייבוקס @";
+  const tagLine = "\n\nתייגו את בעל הפייבוקס בבקשה 🙏🏼 @";
 
   const summaryText = header + body + footer + tagLine;
 
@@ -693,3 +693,4 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log("Server started on port", PORT);
 });
+
