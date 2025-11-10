@@ -1027,9 +1027,12 @@ function finalizeResults(state) {
     else if (place === 3) emoji = "🥉";
     else if (place === 4) emoji = "💪";
 
+    // פה השינוי:
     let prizeText = amount + "₪";
     if (isBounty && bounty > 0) {
-      prizeText = amount + "₪ + " + bounty + "₪ באונטי";
+      const total = amount + bounty;
+      prizeText =
+        amount + "₪ + " + bounty + "₪ באונטי (סה\"כ " + total + "₪)";
     }
 
     const inDeal =
@@ -1038,7 +1041,10 @@ function finalizeResults(state) {
         : "";
 
     lines.push(
-      emoji + " מקום " + place + " - " + full + " (" + nick + ") - " + prizeText + inDeal
+      emoji +
+      " מקום " + place +
+      " - " + full +
+      " (" + nick + ") - " + prizeText + inDeal
     );
   });
 
@@ -1088,6 +1094,7 @@ function finalizeResults(state) {
   resetState(chatId);
 }
 
+
 /***************************************************
  * Webhook + Server
  ***************************************************/
@@ -1109,3 +1116,4 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log("Server started on port", PORT);
 });
+
