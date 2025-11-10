@@ -12,12 +12,15 @@ const fetch = require("node-fetch");
  ***************************************************/
 
 // טוקן של הבוט שלך
-const BOT_TOKEN = "8142647492:AAFLz8UkeXHqS2LCH2EmW3Quktu8nCyzGUQ"; // ← לוודא שזה הטוקן הנכון
+const BOT_TOKEN = "8142647492:AAFLz8UkeXHqS2LCH2EmW3Quktu8nCyzGUQ"; // ← אם שינית, לעדכן פה
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
-// כתובת Google Sheets שפורסמה כ CSV
-// להגדיר ב Render תחת Environment: PLAYERS_URL
+// כתובת Google Apps Script שמחזירה CSV של השחקנים
+// להגדיר ב-Render כ-Environment Variable בשם PLAYERS_URL
 const PLAYERS_URL = process.env.PLAYERS_URL || "";
+
+// זמן קאש של רשימת השחקנים (מילישניות)
+const PLAYERS_CACHE_TTL_MS = 10 * 60 * 1000; // 10 דקות
 
 const app = express();
 app.use(bodyParser.json());
@@ -26,8 +29,11 @@ app.use(bodyParser.json());
 const chatStates = new Map();
 
 /***************************************************
- * GLOBAL PLAYERS - WITHOUT CACHE
+ * GLOBAL PLAYERS CACHE
  ***************************************************/
+
+let playersCache = null;   // { nick: fullName }
+let playersCacheTime = 0;  // timestamp מילישניות מאז epoch
 
 // מפת שחקנים ברירת מחדל אם אין Google Sheets או שיש בעיה בטעינה
 function getFallbackPlayersMap() {
@@ -129,25 +135,44 @@ function getFallbackPlayersMap() {
   };
 }
 
-// טוען מהמיקום של ה Google Sheet (CSV)
+// טוען שחקנים מ-Google Sheet (CSV) דרך Apps Script
 async function fetchPlayersFromSheet() {
   if (!PLAYERS_URL) return null;
 
   try {
-    const res = await fetch(PLAYERS_URL);
-    const text = await res.text();
+    // מוסיפים timestamp קל כדי לא להיתקע בקאש חיצוני אם השתנה משהו
+    const url = PLAYERS_URL.includes("?")
+      ? PLAYERS_URL + "&t=" + Date.now()
+      : PLAYERS_URL + "?t=" + Date.now();
 
-    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    const res = await fetch(url);
+    const raw = await res.text();
+
+    // מוריד BOM אם קיים
+    const text = raw.replace(/^\uFEFF/, "");
+    const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+    if (!lines.length) return null;
+
+    // בודקים אם המפריד הוא "," או ";" (תלוי שפה/אזור בשיטס)
+    let delimiter = ",";
+    if (lines[0].includes(";") && !lines[0].includes(",")) {
+      delimiter = ";";
+    }
+
     const map = {};
 
     // מניחים ששורה ראשונה היא כותרת: nickname,fullname
     for (let i = 1; i < lines.length; i++) {
-      const line = lines[i];
-      const parts = line.split(",");
-      if (parts.length < 2) continue;
+      let line = lines[i].trim();
+      if (!line) continue;
+
+      const parts = line.split(delimiter);
+      if (!parts.length) continue;
+
       const nick = parts[0].trim();
-      const full = parts[1].trim();
+      const full = parts.slice(1).join(delimiter).trim();
       if (!nick) continue;
+
       map[nick] = full || nick;
     }
 
@@ -158,15 +183,21 @@ async function fetchPlayersFromSheet() {
   }
 }
 
-// מחזיר מפת שחקנים – קודם שיטס, אם ריק נופל לפולבאק
+// מחזיר מפת שחקנים – קודם cache בזיכרון, אם פג תוקף טוען מחדש
 async function getPlayersMap() {
-  let map = await fetchPlayersFromSheet();
+  const now = Date.now();
+  if (playersCache && now - playersCacheTime < PLAYERS_CACHE_TTL_MS) {
+    return playersCache;
+  }
 
+  let map = await fetchPlayersFromSheet();
   if (!map || !Object.keys(map).length) {
     console.error("Players from sheet are empty or failed, using fallback list");
     map = getFallbackPlayersMap();
   }
 
+  playersCache = map;
+  playersCacheTime = now;
   return map;
 }
 
@@ -197,7 +228,7 @@ function loadState(chatId) {
       winners: [],             // {place, nickname, bounty}
       extraBounties: [],       // [{nickname, bounty}]
       remainingPlayers: [],
-      pendingWinnerIndex: null, // למי שואלים באונטי כרגע
+      pendingWinnerIndex: null,
       lastExtraBountyNick: null
     });
   }
@@ -333,6 +364,14 @@ async function handleMessage(msg) {
   const text = (msg.text || "").trim();
   let state = loadState(chatId);
 
+  // פקודת תחזוקה – ריענון רשימת שחקנים מהשיטס
+  if (text === "/reload_players") {
+    playersCache = null;
+    playersCacheTime = 0;
+    await sendMessage(chatId, "רשימת השחקנים תרוענן בקריאה הבאה ✅");
+    return;
+  }
+
   if (text === "/start") {
     resetState(chatId);
     state = loadState(chatId);
@@ -431,10 +470,10 @@ async function handleCallback(cb) {
     state.deal = false;
     state.dealCount = 0;
     initPrizes(state);
-    state.step = "SELECT_WINNERS_SEARCH";
     state.currentPlace = 1;
     state.winners = [];
     state.remainingPlayers = await getAllNicknames();
+    state.step = "SELECT_WINNERS_SEARCH";
     saveState(state);
     await answerCallbackQuery(cb.id);
     await askForNextWinner(state);
@@ -442,7 +481,7 @@ async function handleCallback(cb) {
   }
 
   // בחירת זוכה מהמקלדת
-  if (data && data.indexOf("WINNER|") === 0) {
+  if (data && data.startsWith("WINNER|")) {
     const nick = data.split("|")[1];
     await handleWinnerSelection(state, nick, cb);
     return;
@@ -468,8 +507,16 @@ async function handleCallback(cb) {
   }
 
   // בחירת שחקן באונטי נוסף
-  if (data && data.indexOf("EXTRA_BOUNTY|") === 0) {
+  if (data && data.startsWith("EXTRA_BOUNTY|")) {
     const nick = data.split("|")[1];
+    const players = state.remainingPlayers && state.remainingPlayers.length
+      ? state.remainingPlayers
+      : await getAllNicknames();
+
+    if (!players.includes(nick)) {
+      await answerCallbackQuery(cb.id, "שחקן לא קיים ברשימה.");
+      return;
+    }
 
     state.extraBounties = state.extraBounties || [];
     state.extraBounties.push({ nickname: nick, bounty: 0 });
@@ -480,7 +527,7 @@ async function handleCallback(cb) {
     await answerCallbackQuery(cb.id);
     await sendMessage(
       chatId,
-      `כמה באונטי ${nick} לקח? (אם לא לקח - כתוב 0)`
+      `כמה באונטי ${nick} לקח? (אם לא לקח – כתוב 0)`
     );
     return;
   }
@@ -594,10 +641,10 @@ async function handleDealCountInput(state, text) {
   state.dealCount = d;
   initPrizes(state);
 
-  state.step = "SELECT_WINNERS_SEARCH";
   state.currentPlace = 1;
   state.winners = [];
   state.remainingPlayers = await getAllNicknames();
+  state.step = "SELECT_WINNERS_SEARCH";
   saveState(state);
 
   await sendMessage(chatId, "יש " + d + " שחקנים בדיל. בוא נבחר את המיקומים.");
@@ -744,7 +791,7 @@ async function registerWinnerAndContinue(state, nickname) {
     saveState(state);
     await sendMessage(
       chatId,
-      "כמה באונטי השחקן לקח? (אם לא לקח - כתוב 0)"
+      "כמה באונטי השחקן לקח? (אם לא לקח – כתוב 0)"
     );
     return;
   }
@@ -859,7 +906,7 @@ async function handleExtraBountySearchInput(state, text) {
 
     await sendMessage(
       chatId,
-      "כמה באונטי " + chosen + " לקח? (אם לא לקח - כתוב 0)"
+      "כמה באונטי " + chosen + " לקח? (אם לא לקח – כתוב 0)"
     );
     return;
   }
