@@ -1,5 +1,5 @@
 /***************************************************
- * Telegram Poker Tournament Bot - Node + Webhook + Search + Bounty
+ * Telegram Poker Tournament Bot - Node + Webhook + Search + Bounty + Google Sheets
  ***************************************************/
 
 const express = require("express");
@@ -9,16 +9,68 @@ const fetch = require("node-fetch");
 const BOT_TOKEN = "8142647492:AAFLz8UkeXHqS2LCH2EmW3Quktu8nCyzGUQ"; // תחליף לטוקן האמיתי שלך
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
+// כתובת ה Web App של Apps Script שמחזיר JSON של שחקנים
+const PLAYERS_URL = process.env.PLAYERS_URL || null;
+
 const app = express();
 app.use(bodyParser.json());
 
 // state לפי chatId
 const chatStates = new Map();
 
+// קאש של רשימת השחקנים מהשיטס
+let cachedPlayersMap = null;
+const PLAYERS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 דקות
+
 /***************************************************
- * שחקנים
+ * טעינת שחקנים מ Google Sheets דרך Apps Script
+ ***************************************************/
+async function refreshPlayersMapFromRemote() {
+  if (!PLAYERS_URL) {
+    console.log("PLAYERS_URL not set, using static players map from code");
+    return;
+  }
+
+  try {
+    const res = await fetch(PLAYERS_URL);
+    if (!res.ok) {
+      console.error("Failed fetching players from Sheets, status:", res.status);
+      return;
+    }
+
+    const json = await res.json();
+    if (json && typeof json === "object" && !Array.isArray(json) && !json.error) {
+      cachedPlayersMap = json;
+      console.log(
+        "Players map refreshed from Sheets. Count:",
+        Object.keys(json).length
+      );
+    } else {
+      console.error("Invalid players JSON from Sheets:", json);
+    }
+  } catch (err) {
+    console.error("Error fetching players from Sheets:", err);
+  }
+}
+
+// טעינה ראשונית
+refreshPlayersMapFromRemote();
+
+// רענון כל 5 דקות
+setInterval(() => {
+  refreshPlayersMapFromRemote();
+}, PLAYERS_CACHE_TTL_MS);
+
+/***************************************************
+ * שחקנים - getPlayersMap עם fallback לקוד
  ***************************************************/
 function getPlayersMap() {
+  // אם יש נתונים מהשיטס - נשתמש בהם
+  if (cachedPlayersMap && Object.keys(cachedPlayersMap).length > 0) {
+    return cachedPlayersMap;
+  }
+
+  // פולבאק קשיח בקוד
   return {
     "avibil10": "אבי בן נעים",
     "Avico1985": "אבי כהן",
@@ -113,8 +165,7 @@ function getPlayersMap() {
     "kingtz1184": "צדוק",
     "ray12345": "רז חסון",
     "slypoker!": "אוהד",
-    "eran14": "ערן",
-    "Aizi79": "גילי אבשלום"
+    "eran14": "ערן"
   };
 }
 
@@ -258,8 +309,8 @@ function applyDeal(prizes, dealCount) {
 
   let k = 0;
   while (remainder > 0 && k < dealCount && k < result.length) {
-    result[k]++;
     remainder--;
+    result[k]++;
     k++;
   }
 
@@ -375,9 +426,11 @@ function handleCallback(cb) {
     };
 
     answerCallbackQuery(cb.id);
-    sendMessage(chatId, "התחל חישוב זכיות חדש.\n\nבחר סוג טורניר:", {
-      reply_markup: JSON.stringify(kbType)
-    });
+    sendMessage(
+      chatId,
+      "התחל חישוב זכיות חדש.\n\nבחר סוג טורניר:",
+      { reply_markup: JSON.stringify(kbType) }
+    );
     return;
   }
 
@@ -522,7 +575,6 @@ function askForNextWinner(state) {
   const maxPlaces = state.prizesBase.length;
 
   if (place > maxPlaces) {
-    // אם באונטי - נעבור לשאלה על באונטי נוסף, אחרת נסכם
     if (state.tournamentType === "BOUNTY") {
       askExtraBountyQuestion(state);
     } else {
@@ -633,7 +685,7 @@ function selectWinner(state, nickname, callbackId) {
         answerCallbackQuery(callbackId, "שחקן זה כבר נבחר למקום הזה.");
       }
       return;
-  }
+    }
   }
 
   if (players.indexOf(nickname) === -1) {
@@ -643,13 +695,11 @@ function selectWinner(state, nickname, callbackId) {
     return;
   }
 
-  // להוריד מהרשימת remaining
   state.remainingPlayers = players.filter(function (p) { return p !== nickname; });
 
   const isBounty = state.tournamentType === "BOUNTY";
 
   if (isBounty) {
-    // נשמור מנצח ממתין לבאונטי
     state.pendingWinner = { place: place, nickname: nickname };
     state.step = "ASK_WINNER_BOUNTY";
     saveState(state);
@@ -662,7 +712,6 @@ function selectWinner(state, nickname, callbackId) {
       "כמה באונטי השחקן לקח? אם לא לקח, כתוב 0."
     );
   } else {
-    // רגיל - כמו שהיה
     state.winners = state.winners || [];
     state.winners.push({ place: place, nickname: nickname, bounty: 0 });
     state.currentPlace = place + 1;
@@ -722,7 +771,6 @@ function handleWinnerBountyInput(state, text) {
 
   const maxPlaces = state.prizesBase.length;
   if (state.currentPlace > maxPlaces) {
-    // סיימנו לבחור זוכים, שואל על באונטי נוסף
     askExtraBountyQuestion(state);
   } else {
     askForNextWinner(state);
@@ -857,7 +905,6 @@ function handleExtraBountyAmountInput(state, text) {
     bounty: bounty
   });
 
-  // אפשר גם להסיר אותו מ remainingPlayers אם רוצים
   state.remainingPlayers = (state.remainingPlayers || []).filter(function (p) {
     return p !== nick;
   });
@@ -871,7 +918,6 @@ function handleExtraBountyAmountInput(state, text) {
     "עודכן באונטי של " + bounty + "₪ עבור " + nick + "."
   );
 
-  // נשאל שוב אם יש עוד שחקנים שלקחו באונטי
   askExtraBountyQuestion(state);
 }
 
@@ -950,14 +996,13 @@ function finalizeResults(state) {
 
   let body = lines.join("\n");
 
-  // שחקני באונטי מחוץ לפרסים
   if (isBounty && state.extraBounties && state.extraBounties.length > 0) {
     const extraLines = [];
-    const playersMap = getPlayersMap();
+    const playersMap2 = getPlayersMap();
 
     state.extraBounties.forEach(function (b) {
       const nick = b.nickname;
-      const full = playersMap[nick] || nick;
+      const full = playersMap2[nick] || nick;
       extraLines.push(
         "- " + full + " (" + nick + ") - " + b.bounty + "₪ באונטי"
       );
@@ -1021,4 +1066,3 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log("Server started on port", PORT);
 });
-
