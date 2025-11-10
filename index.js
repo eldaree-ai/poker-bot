@@ -184,6 +184,7 @@ function loadState(chatId) {
     chatStates.set(chatId, {
       chatId: chatId,
       step: "START",
+      gameType: null,            // טקסס / אומהה 4 / אומהה 5 / אומהה 6
       tournamentType: null,      // "REGULAR" או "BOUNTY"
       numPlayers: null,
       buyIn: null,
@@ -340,27 +341,34 @@ function handleMessage(msg) {
   if (text === "/start") {
     resetState(chatId);
     state = loadState(chatId);
-    state.step = "ASK_TOURNAMENT_TYPE";
+    state.step = "ASK_GAME_TYPE";
     saveState(state);
 
-    const kb = {
+    const kbGame = {
       inline_keyboard: [
         [
-          { text: "🃏 רגיל", callback_data: "TOURNAMENT_REGULAR" },
-          { text: "💣 באונטי", callback_data: "TOURNAMENT_BOUNTY" }
+          { text: "טקסס", callback_data: "GAME_TEXAS" },
+          { text: "אומהה 4", callback_data: "GAME_O4" }
+        ],
+        [
+          { text: "אומהה 5", callback_data: "GAME_O5" },
+          { text: "אומהה 6", callback_data: "GAME_O6" }
         ]
       ]
     };
 
     sendMessage(
       chatId,
-      "ברוך הבא לבוט חישוב זכיות בטורניר פוקר.\n\nבחר סוג טורניר:",
-      { reply_markup: JSON.stringify(kb) }
+      "ברוך הבא לבוט חישוב זכיות בטורניר פוקר.\n\nבחר סוג משחק:",
+      { reply_markup: JSON.stringify(kbGame) }
     );
     return;
   }
 
   switch (state.step) {
+    case "ASK_GAME_TYPE":
+      sendMessage(chatId, "בחר סוג משחק מהכפתורים.");
+      break;
     case "ASK_TOURNAMENT_TYPE":
       sendMessage(chatId, "בחר סוג טורניר מהכפתורים.");
       break;
@@ -400,19 +408,18 @@ function handleCallback(cb) {
   const chatId = msg.chat.id;
   let state = loadState(chatId);
 
-  // בחירת סוג טורניר
-  if (data === "TOURNAMENT_REGULAR" || data === "TOURNAMENT_BOUNTY") {
-    state.tournamentType = data === "TOURNAMENT_REGULAR" ? "REGULAR" : "BOUNTY";
-    state.step = "ASK_PLAYERS";
-    saveState(state);
-    answerCallbackQuery(cb.id);
-    sendMessage(chatId, "כמה שחקנים היו בטורניר?");
-    return;
-  }
+  // בחירת סוג משחק
+  if (
+    data === "GAME_TEXAS" ||
+    data === "GAME_O4" ||
+    data === "GAME_O5" ||
+    data === "GAME_O6"
+  ) {
+    if (data === "GAME_TEXAS") state.gameType = "טקסס";
+    if (data === "GAME_O4") state.gameType = "אומהה 4";
+    if (data === "GAME_O5") state.gameType = "אומהה 5";
+    if (data === "GAME_O6") state.gameType = "אומהה 6";
 
-  if (data === "START_FLOW") {
-    resetState(chatId);
-    state = loadState(chatId);
     state.step = "ASK_TOURNAMENT_TYPE";
     saveState(state);
 
@@ -428,8 +435,46 @@ function handleCallback(cb) {
     answerCallbackQuery(cb.id);
     sendMessage(
       chatId,
-      "התחל חישוב זכיות חדש.\n\nבחר סוג טורניר:",
+      "בחר סוג טורניר:",
       { reply_markup: JSON.stringify(kbType) }
+    );
+    return;
+  }
+
+  // בחירת סוג טורניר
+  if (data === "TOURNAMENT_REGULAR" || data === "TOURNAMENT_BOUNTY") {
+    state.tournamentType = data === "TOURNAMENT_REGULAR" ? "REGULAR" : "BOUNTY";
+    state.step = "ASK_PLAYERS";
+    saveState(state);
+    answerCallbackQuery(cb.id);
+    sendMessage(chatId, "כמה שחקנים היו בטורניר?");
+    return;
+  }
+
+  if (data === "START_FLOW") {
+    resetState(chatId);
+    state = loadState(chatId);
+    state.step = "ASK_GAME_TYPE";
+    saveState(state);
+
+    const kbGame = {
+      inline_keyboard: [
+        [
+          { text: "טקסס", callback_data: "GAME_TEXAS" },
+          { text: "אומהה 4", callback_data: "GAME_O4" }
+        ],
+        [
+          { text: "אומהה 5", callback_data: "GAME_O5" },
+          { text: "אומהה 6", callback_data: "GAME_O6" }
+        ]
+      ]
+    };
+
+    answerCallbackQuery(cb.id);
+    sendMessage(
+      chatId,
+      "התחל חישוב זכיות חדש.\n\nבחר סוג משחק:",
+      { reply_markup: JSON.stringify(kbGame) }
     );
     return;
   }
@@ -954,11 +999,14 @@ function finalizeResults(state) {
     }
   }
 
+  const gameLine = "סוג משחק: " + (state.gameType || "לא צוין");
+
   const header =
-    "🎯 סיכום הטילט היומי 🎯\n\n" +
+    "🎯 סיכום הטילט היומי 🎯\n" +
+    gameLine + "\n" +
     "👥 שחקנים: " + state.numPlayers + "\n" +
     "💵 כניסה: " + state.buyIn + "₪\n" +
-    "🤝 דיל: " + dealText + "\n\n" +
+    "🤝 דיל: " + dealText + "\n" +
     "━━━━━━━━━━━━━━━\n" +
     "🏆 טבלת זכיות:\n";
 
@@ -1013,14 +1061,9 @@ function finalizeResults(state) {
       extraLines.join("\n");
   }
 
-  const footer =
-    "\n━━━━━━━━━━━━━━━\n" +
-    "🎉 ברכות לזוכים!\n" +
-    "שתמיד תראו פלופים טובים 😎";
+  const footer = "\n\nתייגו את בעל הפייבוקס @  🙏 תודה";
 
-  const tagLine = "\n\nתייגו בבקשה את בעל הפייבוקס @";
-
-  const summaryText = header + body + footer + tagLine;
+  const summaryText = header + body + footer;
 
   const waUrl =
     "https://api.whatsapp.com/send?text=" +
