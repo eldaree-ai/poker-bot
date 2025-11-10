@@ -359,12 +359,12 @@ function handleMessage(msg) {
 
     sendMessage(
       chatId,
-      " ברוך הבא לבוט חישוב זכיות בטורניר פוקר (נבנה ע"י 2GRAND).\n\nבחר סוג משחק:",
+      "ברוך הבא לבוט חישוב זכיות בטורניר פוקר.\n\nבחר סוג משחק:",
       { reply_markup: JSON.stringify(kbGame) }
     );
     return;
   }
-  
+
   switch (state.step) {
     case "ASK_GAME_TYPE":
       sendMessage(chatId, "בחר סוג משחק מהכפתורים.");
@@ -1109,4 +1109,3 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log("Server started on port", PORT);
 });
-
