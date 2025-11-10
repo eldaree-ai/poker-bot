@@ -12,14 +12,14 @@ const fetch = require("node-fetch");
  ***************************************************/
 
 // טוקן של הבוט שלך
-const BOT_TOKEN = "8142647492:AAFLz8UkeXHqS2LCH2EmW3Quktu8nCyzGUQ"; // ← להחליף בטוקן האמיתי
+const BOT_TOKEN = "8142647492:AAFLz8UkeXHqS2LCH2EmW3Quktu8nCyzGUQ"; // ← להחליף בטוקן האמיתי שלך
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
-// כתובת Google Sheets שפורסמה כ-CSV
-// להגדיר ב-Render תחת Environment: PLAYERS_URL
+// כתובת Google Sheets שפורסמה כ CSV
+// להגדיר ב Render תחת Environment: PLAYERS_URL
 const PLAYERS_URL = process.env.PLAYERS_URL || "";
 
-// הגבלת קאש של שחקנים (מילישניות)
+// הגבלת קאש של שחקנים במילישניות
 const PLAYERS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 דקות
 
 const app = express();
@@ -35,7 +35,7 @@ const chatStates = new Map();
 let playersCache = null;        // { nick: fullName }
 let playersCacheTime = 0;       // timestamp
 
-// מפת שחקנים ברירת מחדל (אם אין Google Sheets / בעיה בטעינה)
+// מפת שחקנים ברירת מחדל אם אין Google Sheets או שיש בעיה בטעינה
 function getFallbackPlayersMap() {
   return {
     "avibil10": "אבי בן נעים",
@@ -135,7 +135,7 @@ function getFallbackPlayersMap() {
   };
 }
 
-// טוען מהמיקום של ה-Google Sheet (CSV)
+// טוען מהמיקום של ה Google Sheet (CSV)
 async function fetchPlayersFromSheet() {
   if (!PLAYERS_URL) return null;
 
@@ -164,7 +164,7 @@ async function fetchPlayersFromSheet() {
   }
 }
 
-// מחזיר מפת שחקנים – קודם מ-cache, אחרת מה-sheet, אחרת fallback
+// מחזיר מפת שחקנים – קודם קאש, אחר כך sheet, אחרת fallback
 async function getPlayersMap() {
   const now = Date.now();
   if (playersCache && now - playersCacheTime < PLAYERS_CACHE_TTL_MS) {
@@ -208,7 +208,8 @@ function loadState(chatId) {
       winners: [],             // {place, nickname, bounty}
       extraBounties: [],       // [{nickname, bounty}]
       remainingPlayers: [],
-      pendingWinnerIndex: null // למי אנחנו שואלים כרגע באונטי
+      pendingWinnerIndex: null, // למי שואלים באונטי כרגע
+      lastExtraBountyNick: null
     });
   }
   return chatStates.get(chatId);
@@ -417,7 +418,7 @@ async function handleCallback(cb) {
     return;
   }
 
-  // סוג טורניר: רגיל / באונטי
+  // סוג טורניר: רגיל או באונטי
   if (data === "MODE_REGULAR" || data === "MODE_BOUNTY") {
     state.mode = data === "MODE_REGULAR" ? "REGULAR" : "BOUNTY";
     state.step = "ASK_PLAYERS";
@@ -472,7 +473,7 @@ async function handleCallback(cb) {
     await sendMessage(
       chatId,
       "מעולה, נאתר שחקנים נוספים שלקחו באונטי.\n" +
-      "תכתוב 2–3 אותיות מהניק או מהשם של השחקן:"
+      "תכתוב 2-3 אותיות מהניק או מהשם של השחקן:"
     );
     return;
   }
@@ -480,7 +481,10 @@ async function handleCallback(cb) {
   // בחירת שחקן באונטי נוסף
   if (data && data.startsWith("EXTRA_BOUNTY|")) {
     const nick = data.split("|")[1];
-    const players = state.remainingPlayers || await getAllNicknames();
+    const players = state.remainingPlayers && state.remainingPlayers.length
+      ? state.remainingPlayers
+      : await getAllNicknames();
+
     if (!players.includes(nick)) {
       await answerCallbackQuery(cb.id, "שחקן לא קיים ברשימה.");
       return;
@@ -531,7 +535,7 @@ async function askGameType(state) {
   });
 }
 
-// שאלה: רגיל / באונטי
+// שאלה: רגיל או באונטי
 async function askTournamentMode(state) {
   const chatId = state.chatId;
   state.step = "ASK_MODE";
@@ -556,7 +560,7 @@ async function handlePlayersCountInput(state, text) {
   const chatId = state.chatId;
   const n = parseInt(text, 10);
   if (isNaN(n) || n < 2) {
-    await sendMessage(chatId, "מספר שחקנים לא תקין. הזן מספר גדול או שווה ל־2.");
+    await sendMessage(chatId, "מספר שחקנים לא תקין. הזן מספר גדול או שווה ל 2.");
     return;
   }
   state.numPlayers = n;
@@ -600,7 +604,7 @@ async function handleDealCountInput(state, text) {
   if (isNaN(d) || d < 2 || d > maxPlaces) {
     await sendMessage(
       chatId,
-      `מספר שחקנים בדיל לא תקין. הזן מספר בין 2 ל־${maxPlaces}.`
+      "מספר שחקנים בדיל לא תקין. הזן מספר בין 2 ל " + maxPlaces + "."
     );
     return;
   }
@@ -615,7 +619,7 @@ async function handleDealCountInput(state, text) {
   state.step = "SELECT_WINNERS_SEARCH";
   saveState(state);
 
-  await sendMessage(chatId, `יש ${d} שחקנים בדיל. בוא נבחר את המיקומים.`);
+  await sendMessage(chatId, "יש " + d + " שחקנים בדיל. בוא נבחר את המיקומים.");
   await askForNextWinner(state);
 }
 
@@ -628,7 +632,6 @@ async function askForNextWinner(state) {
   const maxPlaces = state.prizesBase.length;
 
   if (place > maxPlaces) {
-    // סיימנו לבחור זוכים
     await finishWinnersPhase(state);
     return;
   }
@@ -638,8 +641,8 @@ async function askForNextWinner(state) {
   }
 
   const txt =
-    `מקום ${place}:\n` +
-    "תכתוב 2–3 אותיות מהניק או מהשם, ואני אמצא לך 🔍";
+    "מקום " + place + ":\n" +
+    "תכתוב 2-3 אותיות מהניק או מהשם, ואני אמצא לך 🔍";
 
   state.step = "SELECT_WINNERS_SEARCH";
   saveState(state);
@@ -659,7 +662,9 @@ async function handleWinnerSearchInput(state, text) {
   }
 
   const playersMap = await getPlayersMap();
-  const players = state.remainingPlayers || await getAllNicknames();
+  const players = state.remainingPlayers && state.remainingPlayers.length
+    ? state.remainingPlayers
+    : await getAllNicknames();
   const q = query.toLowerCase();
 
   const matches = players.filter(nick => {
@@ -709,14 +714,16 @@ async function handleWinnerSearchInput(state, text) {
 
   await sendMessage(
     chatId,
-    `מצאתי כמה אפשרויות למקום ${place}:\nבחר מהכפתורים 👇`,
+    "מצאתי כמה אפשרויות למקום " + place + ":\nבחר מהכפתורים 👇",
     { reply_markup: JSON.stringify({ inline_keyboard: keyboard }) }
   );
 }
 
 async function handleWinnerSelection(state, nickname, cb) {
   const chatId = state.chatId;
-  const players = state.remainingPlayers || await getAllNicknames();
+  const players = state.remainingPlayers && state.remainingPlayers.length
+    ? state.remainingPlayers
+    : await getAllNicknames();
 
   const exists = players.includes(nickname);
   if (!exists) {
@@ -731,11 +738,12 @@ async function handleWinnerSelection(state, nickname, cb) {
 async function registerWinnerAndContinue(state, nickname) {
   const chatId = state.chatId;
   const place = state.currentPlace;
-  const players = state.remainingPlayers || await getAllNicknames();
+  const players = state.remainingPlayers && state.remainingPlayers.length
+    ? state.remainingPlayers
+    : await getAllNicknames();
 
   state.winners = state.winners || [];
 
-  // מניעת כפילויות
   if (state.winners.some(w => w.nickname === nickname)) {
     await sendMessage(chatId, "שחקן זה כבר נבחר לזכייה.");
     return;
@@ -747,9 +755,8 @@ async function registerWinnerAndContinue(state, nickname) {
 
   saveState(state);
 
-  await sendMessage(chatId, `נבחר: ${nickname} למקום ${place} ✅`);
+  await sendMessage(chatId, "נבחר: " + nickname + " למקום " + place + " ✅");
 
-  // אם מצב באונטי – לשאול על הבונטי לפני שממשיכים
   if (state.mode === "BOUNTY") {
     state.pendingWinnerIndex = state.winners.length - 1;
     state.step = "ASK_BOUNTY_FOR_WINNER";
@@ -761,7 +768,6 @@ async function registerWinnerAndContinue(state, nickname) {
     return;
   }
 
-  // רגיל – ישר למקום הבא
   await askForNextWinner(state);
 }
 
@@ -772,7 +778,6 @@ async function handleBountyForWinnerInput(state, text) {
   const chatId = state.chatId;
   const idx = state.pendingWinnerIndex;
   if (idx == null || !state.winners[idx]) {
-    // משהו נדפק – ממשיכים
     await askForNextWinner(state);
     return;
   }
@@ -798,7 +803,6 @@ async function finishWinnersPhase(state) {
   const chatId = state.chatId;
 
   if (state.mode === "BOUNTY") {
-    // שואלים האם היו שחקנים נוספים שלקחו באונטי
     state.step = "ASK_EXTRA_BOUNTY_YN";
     saveState(state);
 
@@ -819,7 +823,6 @@ async function finishWinnersPhase(state) {
     return;
   }
 
-  // מצב רגיל – ישר לסיכום
   await finalizeResults(state);
 }
 
@@ -841,7 +844,6 @@ async function handleExtraBountySearchInput(state, text) {
   const playersMap = await getPlayersMap();
   const allPlayers = await getAllNicknames();
 
-  // ניקח שחקנים שלא מופיעים כבר ברשימת הזוכים + באונטי נוספים
   const usedNicks = new Set();
   (state.winners || []).forEach(w => usedNicks.add(w.nickname));
   (state.extraBounties || []).forEach(b => usedNicks.add(b.nickname));
@@ -876,7 +878,7 @@ async function handleExtraBountySearchInput(state, text) {
 
     await sendMessage(
       chatId,
-      `כמה באונטי ${chosen} לקח? (אם לא לקח – כתוב 0)`
+      "כמה באונטי " + chosen + " לקח? (אם לא לקח – כתוב 0)"
     );
     return;
   }
@@ -912,12 +914,11 @@ async function handleExtraBountyAmountInput(state, text) {
   const chatId = state.chatId;
   const nick = state.lastExtraBountyNick;
   if (!nick || !state.extraBounties) {
-    // משהו לא מסתדר – נחזור לשאלה
     state.step = "SELECT_EXTRA_BOUNTY_SEARCH";
     saveState(state);
     await sendMessage(
       chatId,
-      "ננסה שוב – תכתוב 2–3 אותיות מהניק או מהשם של השחקן:"
+      "ננסה שוב – תכתוב 2-3 אותיות מהניק או מהשם של השחקן:"
     );
     return;
   }
@@ -928,7 +929,6 @@ async function handleExtraBountyAmountInput(state, text) {
     return;
   }
 
-  // עדכון הערך
   const entry = state.extraBounties.find(b => b.nickname === nick);
   if (entry) {
     entry.bounty = amount;
@@ -979,7 +979,7 @@ async function finalizeResults(state) {
   const lines = [];
 
   const gameLine = state.gameType
-    ? `🎮 סוג משחק: ${state.gameType}\n`
+    ? "🎲 סוג משחק: " + state.gameType + "\n"
     : "";
 
   let dealText = "לא";
@@ -987,19 +987,18 @@ async function finalizeResults(state) {
     if (state.dealCount >= winners.length) {
       dealText = "כן - מלא (כל הזוכים)";
     } else {
-      dealText = `כן - חלקי (${state.dealCount} מתוך ${winners.length} הזוכים)`;
+      dealText = "כן - חלקי (" + state.dealCount + " מתוך " + winners.length + " הזוכים)";
     }
   }
 
   const header =
     "🔥 סיכום הטילט היומי:\n\n" +
     gameLine +
-    `👥 מספר שחקנים: ${state.numPlayers}\n` +
-    `💵 סכום כניסה: ${state.buyIn}₪\n` +
-    `🤝 דיל: ${dealText}\n\n` +
+    "👥 מספר שחקנים: " + state.numPlayers + "\n" +
+    "💵 סכום כניסה: " + state.buyIn + "₪\n" +
+    "🤝 דיל: " + dealText + "\n\n" +
     "🏆 טבלת זכיות:\n";
 
-  // מיון לפי מקום
   winners.sort((a, b) => a.place - b.place);
 
   winners.forEach(w => {
@@ -1020,30 +1019,34 @@ async function finalizeResults(state) {
 
     const bountyText =
       state.mode === "BOUNTY"
-        ? ` (+${bounty}₪ באונטי)`
+        ? " (+" + bounty + "₪ באונטי)"
         : "";
 
     lines.push(
-      `${emoji} מקום ${place} - ${full} (${nick}) - ${amount}₪${inDeal}${bountyText}`
+      emoji +
+      " מקום " + place +
+      " - " + full +
+      " (" + nick + ")" +
+      " - " + amount + "₪" +
+      inDeal +
+      bountyText
     );
   });
 
-  // באונטי נוספים
   if (state.mode === "BOUNTY" && state.extraBounties && state.extraBounties.length) {
     lines.push("\n💣 שחקנים נוספים שלקחו באונטי:");
     state.extraBounties.forEach(b => {
       const nick = b.nickname;
       const full = playersMap[nick] || nick;
       const bounty = b.bounty || 0;
-      lines.push(`• ${full} (${nick}) - ${bounty}₪ באונטי`);
+      lines.push("• " + full + " (" + nick + ") - " + bounty + "₪ באונטי");
     });
   }
 
   const body = lines.join("\n");
+
   const footer =
-    "\n\n🎉 ברכות לזוכים!\n" +
-    "תייגו בבקשה את בעל הפייבוקס @\n" +
-    "שתמיד תראו פלופים טובים 😎";
+    "\n\n🙏 תייגו את בעל הפייבוקס @ תודה";
 
   const summaryText = header + body + footer;
 
@@ -1053,7 +1056,7 @@ async function finalizeResults(state) {
 
   const msg =
     summaryText + "\n\n" +
-    `<a href="${waUrl}">🔗 שיתוף בוואטסאפ</a>`;
+    '<a href="' + waUrl + '">🔗 שיתוף בוואטסאפ</a>';
 
   await sendMessage(chatId, msg);
 
