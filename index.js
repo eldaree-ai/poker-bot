@@ -12,15 +12,12 @@ const fetch = require("node-fetch");
  ***************************************************/
 
 // טוקן של הבוט שלך
-const BOT_TOKEN = "8142647492:AAFLz8UkeXHqS2LCH2EmW3Quktu8nCyzGUQ"; // ← להחליף בטוקן האמיתי שלך
+const BOT_TOKEN = "8142647492:AAFLz8UkeXHqS2LCH2EmW3Quktu8nCyzGUQ"; // ← לוודא שזה הטוקן הנכון
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 
 // כתובת Google Sheets שפורסמה כ CSV
 // להגדיר ב Render תחת Environment: PLAYERS_URL
 const PLAYERS_URL = process.env.PLAYERS_URL || "";
-
-// הגבלת קאש של שחקנים במילישניות
-const PLAYERS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 דקות
 
 const app = express();
 app.use(bodyParser.json());
@@ -29,11 +26,8 @@ app.use(bodyParser.json());
 const chatStates = new Map();
 
 /***************************************************
- * GLOBAL PLAYERS CACHE
+ * GLOBAL PLAYERS - WITHOUT CACHE
  ***************************************************/
-
-let playersCache = null;        // { nick: fullName }
-let playersCacheTime = 0;       // timestamp
 
 // מפת שחקנים ברירת מחדל אם אין Google Sheets או שיש בעיה בטעינה
 function getFallbackPlayersMap() {
@@ -164,20 +158,15 @@ async function fetchPlayersFromSheet() {
   }
 }
 
-// מחזיר מפת שחקנים – קודם קאש, אחר כך sheet, אחרת fallback
+// מחזיר מפת שחקנים – קודם שיטס, אם ריק נופל לפולבאק
 async function getPlayersMap() {
-  const now = Date.now();
-  if (playersCache && now - playersCacheTime < PLAYERS_CACHE_TTL_MS) {
-    return playersCache;
-  }
-
   let map = await fetchPlayersFromSheet();
+
   if (!map || !Object.keys(map).length) {
+    console.error("Players from sheet are empty or failed, using fallback list");
     map = getFallbackPlayersMap();
   }
 
-  playersCache = map;
-  playersCacheTime = now;
   return map;
 }
 
@@ -442,10 +431,10 @@ async function handleCallback(cb) {
     state.deal = false;
     state.dealCount = 0;
     initPrizes(state);
+    state.step = "SELECT_WINNERS_SEARCH";
     state.currentPlace = 1;
     state.winners = [];
     state.remainingPlayers = await getAllNicknames();
-    state.step = "SELECT_WINNERS_SEARCH";
     saveState(state);
     await answerCallbackQuery(cb.id);
     await askForNextWinner(state);
@@ -453,7 +442,7 @@ async function handleCallback(cb) {
   }
 
   // בחירת זוכה מהמקלדת
-  if (data && data.startsWith("WINNER|")) {
+  if (data && data.indexOf("WINNER|") === 0) {
     const nick = data.split("|")[1];
     await handleWinnerSelection(state, nick, cb);
     return;
@@ -479,16 +468,8 @@ async function handleCallback(cb) {
   }
 
   // בחירת שחקן באונטי נוסף
-  if (data && data.startsWith("EXTRA_BOUNTY|")) {
+  if (data && data.indexOf("EXTRA_BOUNTY|") === 0) {
     const nick = data.split("|")[1];
-    const players = state.remainingPlayers && state.remainingPlayers.length
-      ? state.remainingPlayers
-      : await getAllNicknames();
-
-    if (!players.includes(nick)) {
-      await answerCallbackQuery(cb.id, "שחקן לא קיים ברשימה.");
-      return;
-    }
 
     state.extraBounties = state.extraBounties || [];
     state.extraBounties.push({ nickname: nick, bounty: 0 });
@@ -499,7 +480,7 @@ async function handleCallback(cb) {
     await answerCallbackQuery(cb.id);
     await sendMessage(
       chatId,
-      `כמה באונטי ${nick} לקח? (אם לא לקח – כתוב 0)`
+      `כמה באונטי ${nick} לקח? (אם לא לקח - כתוב 0)`
     );
     return;
   }
@@ -613,10 +594,10 @@ async function handleDealCountInput(state, text) {
   state.dealCount = d;
   initPrizes(state);
 
+  state.step = "SELECT_WINNERS_SEARCH";
   state.currentPlace = 1;
   state.winners = [];
   state.remainingPlayers = await getAllNicknames();
-  state.step = "SELECT_WINNERS_SEARCH";
   saveState(state);
 
   await sendMessage(chatId, "יש " + d + " שחקנים בדיל. בוא נבחר את המיקומים.");
@@ -763,7 +744,7 @@ async function registerWinnerAndContinue(state, nickname) {
     saveState(state);
     await sendMessage(
       chatId,
-      "כמה באונטי השחקן לקח? (אם לא לקח – כתוב 0)"
+      "כמה באונטי השחקן לקח? (אם לא לקח - כתוב 0)"
     );
     return;
   }
@@ -878,7 +859,7 @@ async function handleExtraBountySearchInput(state, text) {
 
     await sendMessage(
       chatId,
-      "כמה באונטי " + chosen + " לקח? (אם לא לקח – כתוב 0)"
+      "כמה באונטי " + chosen + " לקח? (אם לא לקח - כתוב 0)"
     );
     return;
   }
